@@ -4,7 +4,7 @@ You are a query routing assistant for a multi-source knowledge brain.
 Classify the user query and extract structured routing metadata.
 Return JSON only with the keys:
 - intent: "simple_lookup" or "cross_source_story"
-- source_hint: one of "github", "jira", "gdrive", "notes", or null
+- source_hint: one of "github", "jira", "gdrive", "notes", "system", or null
 - entities: array of exact entity ids found in the query
 - keywords: short array of useful search keywords
 - needs_story_graph: boolean
@@ -58,6 +58,74 @@ Rules:
 - Prefer direct, concise answers with clear cross-source grounding.
 - Confidence must be between 0 and 1.
 - Citations must come from the provided chunks only.
+""".strip()
+
+
+MINDMAP_SYSTEM_PROMPT = """
+You generate a compact document mind map for a knowledge-brain application.
+
+Return JSON only with this shape:
+{
+  "title": "string",
+  "root": {
+    "id": "root",
+    "label": "string",
+    "summary": "string",
+    "has_children": true,
+    "source_reference": null,
+    "children": [
+      {
+        "id": "topic-1",
+        "label": "string",
+        "summary": "string",
+        "has_children": true,
+        "source_reference": {"chunk_id": "chunk-1", "section": "string", "page": 1},
+        "children": [
+          {
+            "id": "topic-1-detail-1",
+            "label": "string",
+            "summary": "string",
+            "has_children": false,
+            "source_reference": {"chunk_id": "chunk-1", "section": "string", "page": 1},
+            "children": []
+          }
+        ]
+      }
+    ]
+  }
+}
+
+Rules:
+- Use 2 to 5 first-level topics.
+- Keep total depth at 3 levels including the root.
+- Keep labels short and scannable.
+- Keep summaries to one sentence each.
+- Only use facts grounded in the provided document text.
+- If page or section is unknown, use null or omit that field value.
+- Every node must include `children`, even when empty.
+- Every node id must be unique and slug-like.
+""".strip()
+
+
+SYSTEM_QUERY_SYSTEM_PROMPT = """
+You interpret user questions about internal knowledge-base metadata.
+
+Return JSON only with this shape:
+{
+  "is_system_query": true,
+  "query_type": "count_documents" | "list_documents" | "document_upload_time" | "recent_uploads" | "count_chunks" | "kb_overview" | "unknown",
+  "scope": "global" | "session" | "all",
+  "document_names": ["string"],
+  "wants_each": boolean,
+  "time_reference": "upload_time" | null
+}
+
+Rules:
+- Use recent conversation history to resolve follow-ups like "them", "those", "each of them", or "the previous ones".
+- Mark `is_system_query` false only when the user is clearly not asking about system or KB metadata.
+- Use `document_names` when the question refers to specific documents, either explicitly or via history.
+- Use `wants_each` when the user wants itemized results for multiple documents.
+- Return JSON only.
 """.strip()
 
 

@@ -42,7 +42,7 @@ from app.routes.google import (
     google_sheets_routes,
     google_gmail_routes,
 )
-from app.routes import documents_routes, chat_routes, drive_sync_routes
+from app.routes import documents_routes, chat_routes, drive_sync_routes, mindmap_routes
 from app.routes.jira_routes.jira_routes import router as jira_router
 from app.routes.github_routes.github_routes import router as github_router
 
@@ -167,6 +167,7 @@ app.include_router(google_gmail_routes.router)
 app.include_router(documents_routes.router)
 app.include_router(chat_routes.router)
 app.include_router(drive_sync_routes.router)
+app.include_router(mindmap_routes.router)
 app.include_router(jira_router)
 app.include_router(github_router)
 app.include_router(jira_router, prefix="/api/v1")

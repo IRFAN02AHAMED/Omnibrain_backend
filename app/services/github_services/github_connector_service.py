@@ -68,6 +68,9 @@ class GitHubConnectorService:
             return "GitHub is connected, but no repositories were returned for this account."
 
         normalized_query = (query or "").strip().lower()
+        if self._is_repo_listing_query(normalized_query):
+            return self._format_repo_listing_context(repos)
+
         matched_repos = [
             repo for repo in repos
             if repo.get("name", "").lower() in normalized_query
@@ -90,6 +93,41 @@ class GitHubConnectorService:
 
         if len(repos) > len(top_repos):
             lines.append(f"- Plus {len(repos) - len(top_repos)} more repositories not shown here.")
+
+        return "\n".join(lines)
+
+    def _is_repo_listing_query(self, query: str) -> bool:
+        repo_keywords = [
+            "what are the repos",
+            "what repos",
+            "list repos",
+            "list repositories",
+            "show repos",
+            "show repositories",
+            "repositories in my github",
+            "repos in my github",
+            "my github repos",
+            "my repositories",
+        ]
+        return any(keyword in query for keyword in repo_keywords)
+
+    def _format_repo_listing_context(self, repos: list[dict]) -> str:
+        lines = [
+            "Live GitHub repository list:",
+            f"- Total repositories returned: {len(repos)}",
+            "- Use the repository names below as the primary answer.",
+            "",
+            "Repositories:",
+        ]
+
+        for repo in repos[:15]:
+            visibility = "private" if repo.get("private") else "public"
+            lines.append(
+                f"- {repo.get('full_name')} | visibility: {visibility} | updated: {repo.get('updated_at')}"
+            )
+
+        if len(repos) > 15:
+            lines.append(f"- Plus {len(repos) - 15} more repositories not shown here.")
 
         return "\n".join(lines)
 

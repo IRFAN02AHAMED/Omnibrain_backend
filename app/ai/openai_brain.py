@@ -5,9 +5,11 @@ import httpx
 
 from app.ai.prompts.brain_prompts import (
     CHAT_MEMORY_SYSTEM_PROMPT,
+    MINDMAP_SYSTEM_PROMPT,
     ROUTE_SYSTEM_PROMPT,
     STORY_GRAPH_SYSTEM_PROMPT,
     SYNTHESIS_SYSTEM_PROMPT,
+    SYSTEM_QUERY_SYSTEM_PROMPT,
 )
 from app.core.config import settings
 from app.core.logger import logger
@@ -50,6 +52,33 @@ async def synthesize_brain_answer(
         f"Evidence chunks:\n{json.dumps(chunks, ensure_ascii=True)}"
     )
     return await _chat_json(SYNTHESIS_SYSTEM_PROMPT, user_prompt)
+
+
+async def generate_document_mindmap(
+    document_name: str,
+    document_text: str,
+    max_depth: int = 3,
+    max_branches_per_node: int = 5,
+) -> dict[str, Any]:
+    user_prompt = (
+        f"Document name:\n{document_name}\n\n"
+        f"Mind map constraints:\n"
+        f"- max_depth: {max_depth}\n"
+        f"- max_branches_per_node: {max_branches_per_node}\n\n"
+        f"Document text:\n{document_text}"
+    )
+    return await _chat_json(MINDMAP_SYSTEM_PROMPT, user_prompt)
+
+
+async def interpret_system_query(
+    query: str,
+    conversation_history: list[dict[str, Any]],
+) -> dict[str, Any]:
+    user_prompt = (
+        f"Current user question:\n{query}\n\n"
+        f"Recent conversation history:\n{json.dumps(conversation_history, ensure_ascii=True)}\n"
+    )
+    return await _chat_json(SYSTEM_QUERY_SYSTEM_PROMPT, user_prompt)
 
 
 async def answer_chat_with_memory(

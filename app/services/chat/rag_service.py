@@ -14,6 +14,7 @@ from app.repositories.session_document_chunk_repository import SessionDocumentCh
 from app.services.documents.document_chunking_service import generate_mock_embedding
 from app.services.github_services.github_connector_service import GitHubConnectorService
 from app.services.jira_services.jira_connector_service import JiraConnectorService
+from app.services.system_query_service import SystemQueryService
 from app.core.logger import logger
 
 
@@ -39,6 +40,23 @@ def _is_jira_query(query: str) -> bool:
     return bool(re.search(r"\b[A-Z][A-Z0-9]+-\d+\b", query or ""))
 
 
+def _is_system_query(query: str) -> bool:
+    normalized = (query or "").lower()
+    system_keywords = [
+        "how many documents",
+        "how many docs",
+        "knowledge base",
+        "in the kb",
+        "uploaded",
+        "upload date",
+        "recent documents",
+        "recent uploads",
+        "how many chunks",
+        "what documents do we have",
+    ]
+    return any(keyword in normalized for keyword in system_keywords)
+
+
 async def _classify_query_sources(query: str) -> dict:
     route = {
         "source_hint": None,
@@ -52,6 +70,7 @@ async def _classify_query_sources(query: str) -> dict:
     exact_jira = bool(re.search(r"\b[A-Z][A-Z0-9]+-\d+\b", query or ""))
     deterministic_github = _is_github_query(query)
     deterministic_jira = _is_jira_query(query)
+    deterministic_system = _is_system_query(query)
 
     if exact_jira:
         route["source_hint"] = "jira"
@@ -74,12 +93,15 @@ async def _classify_query_sources(query: str) -> dict:
     except OpenAIBrainError as exc:
         logger.warning("[RAG] LLM query routing failed for query=%s error=%s", query, exc)
 
-    if route["source_hint"] not in {"jira", "github"}:
+    if route["source_hint"] not in {"jira", "github", "system"}:
         if deterministic_jira:
             route["source_hint"] = "jira"
             route["routing_mode"] = "deterministic_fallback"
         elif deterministic_github:
             route["source_hint"] = "github"
+            route["routing_mode"] = "deterministic_fallback"
+        elif deterministic_system:
+            route["source_hint"] = "system"
             route["routing_mode"] = "deterministic_fallback"
 
     logger.info(
@@ -93,6 +115,7 @@ async def _classify_query_sources(query: str) -> dict:
 
 async def retrieve_context_for_query(session_id: int, user_id: int, query: str, db: AsyncSession) -> str:
     query_emb = await generate_mock_embedding(query)
+    history = await retrieve_recent_history(session_id, user_id, db)
     
     global_repo = DocumentChunkRepository(db)
     global_chunks = await global_repo.search_by_embedding_for_owner(user_id, query_emb, limit=3)
@@ -102,6 +125,20 @@ async def retrieve_context_for_query(session_id: int, user_id: int, query: str, 
     
     context_texts = [c.chunk_text for c in global_chunks] + [c.chunk_text for c in session_chunks]
     routing = await _classify_query_sources(query)
+
+    if routing["source_hint"] == "system":
+        try:
+            system_context = await SystemQueryService(db).get_context_for_query(
+                user_id,
+                session_id,
+                query,
+                conversation_history=history,
+            )
+            if system_context:
+                context_texts.append(system_context)
+        except Exception as exc:
+            logger.exception("[RAG] System query service error for query=%s", query)
+            context_texts.append(f"System metadata query error: {exc}")
 
     if routing["source_hint"] == "github":
         try:
@@ -147,6 +184,7 @@ async def retrieve_recent_history(session_id: int, user_id: int, db: AsyncSessio
 
 async def prepare_rag_context(session_id: int, user_id: int, query: str, db: AsyncSession) -> dict:
     query_emb = await generate_mock_embedding(query)
+    history = await retrieve_recent_history(session_id, user_id, db)
 
     global_repo = DocumentChunkRepository(db)
     global_chunks = await global_repo.search_by_embedding_for_owner(user_id, query_emb, limit=3)
@@ -162,6 +200,21 @@ async def prepare_rag_context(session_id: int, user_id: int, query: str, db: Asy
         kb_sources.append("global_documents")
     if session_chunks:
         kb_sources.append("session_documents")
+
+    if routing["source_hint"] == "system":
+        try:
+            system_context = await SystemQueryService(db).get_context_for_query(
+                user_id,
+                session_id,
+                query,
+                conversation_history=history,
+            )
+            if system_context:
+                context_texts.append(system_context)
+                kb_sources.append("system")
+        except Exception as exc:
+            logger.exception("[RAG] System query service error for query=%s", query)
+            context_texts.append(f"System metadata query error: {exc}")
 
     if routing["source_hint"] == "github":
         try:
@@ -186,8 +239,6 @@ async def prepare_rag_context(session_id: int, user_id: int, query: str, db: Asy
         except Exception as exc:
             logger.exception("[RAG] Jira connector unexpected error for query=%s", query)
             context_texts.append(f"Jira connector error: failed to fetch live Jira context. Internal error: {exc}")
-
-    history = await retrieve_recent_history(session_id, user_id, db)
     context = "\n\n---\n\n".join(context_texts) if context_texts else ""
 
     return {
