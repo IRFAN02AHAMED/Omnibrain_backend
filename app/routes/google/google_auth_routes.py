@@ -1,7 +1,7 @@
 # app/routes/google/google_auth_routes.py
 # Purpose: Google OAuth routes for login, callback, account info, token refresh, and disconnect.
 
-from fastapi import APIRouter, Query, HTTPException
+from fastapi import APIRouter, Query, HTTPException, Depends
 from fastapi.responses import RedirectResponse
 
 from app.services.google.google_auth_service import (
@@ -14,9 +14,10 @@ from app.services.google.google_auth_service import (
     connect_google_account_db,
 )
 from sqlalchemy.ext.asyncio import AsyncSession
-from fastapi import Depends
 from app.core.database import get_db
 from app.core.google_config import FRONTEND_URL
+from app.core.security import get_current_user
+from app.models.user import User
 
 # ─────────────────────────────────────────────────────────────────────────────
 # TODO: Replace `user_id` query parameter / state with current logged-in user
@@ -100,6 +101,23 @@ async def google_me(
     """
     # TODO: Replace `user_id` with current logged-in user from JWT dependency.
     return get_connected_google_account(user_id)
+
+
+@router.get("/me/v2")
+async def google_me_v2(current_user: User = Depends(get_current_user)):
+    """
+    Return the currently authenticated application user from the JWT token.
+    """
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "full_name": current_user.full_name,
+        "profile_picture": current_user.profile_picture,
+        "auth_provider": current_user.auth_provider,
+        "is_active": current_user.is_active,
+        "created_at": current_user.created_at,
+        "updated_at": current_user.updated_at,
+    }
 
 
 @router.post("/refresh-token")
