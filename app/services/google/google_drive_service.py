@@ -192,7 +192,8 @@ async def ensure_omnibrain_folders(user_id: int, db: AsyncSession) -> dict:
     """
     # Check if folder IDs are already cached in metadata
     repo = ConnectedAccountRepository(db)
-    account = await repo.get_by_user_id(user_id, provider="google")
+    account = await repo.get_by_user_id_and_provider(user_id, "google")
+
 
     if account and account.metadata_:
         meta = account.metadata_
@@ -232,6 +233,73 @@ async def ensure_omnibrain_folders(user_id: int, db: AsyncSession) -> dict:
 
     logger.info(f"[GoogleDrive] Folders ensured for user_id={user_id}: {folder_ids}")
     return folder_ids
+
+async def search_drive_files_for_user(
+    user_id: int,
+    db: AsyncSession,
+    query: str,
+    page_size: int = 50,
+) -> dict:
+    """
+    Search Google Drive files using DB-backed Google connection.
+    Used by production JWT route: /google/drive/search/me
+    """
+    service = await get_drive_client_for_user(user_id, db)
+
+    try:
+        drive_query = f"name contains '{query}' and trashed=false"
+
+        results = service.files().list(
+            q=drive_query,
+            pageSize=page_size,
+            fields="files(id, name, mimeType, webViewLink, modifiedTime, size)",
+            orderBy="modifiedTime desc",
+        ).execute()
+
+        files = results.get("files", [])
+
+        return {
+            "query": query,
+            "files": files,
+            "count": len(files),
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to search Drive files: {str(e)}",
+        )
+    
+async def list_drive_files_for_user(
+    user_id: int,
+    db: AsyncSession,
+    page_size: int = 50,
+) -> dict:
+    """
+    List recent files from Google Drive using DB-backed Google connection.
+    Used by production JWT route: /google/drive/files/me
+    """
+    service = await get_drive_client_for_user(user_id, db)
+
+    try:
+        results = service.files().list(
+            pageSize=page_size,
+            fields="files(id, name, mimeType, webViewLink, modifiedTime, size)",
+            orderBy="modifiedTime desc",
+        ).execute()
+
+        files = results.get("files", [])
+
+        return {
+            "files": files,
+            "count": len(files),
+        }
+
+    except Exception as e:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to list Drive files: {str(e)}",
+        )
 
 
 def upload_file_to_folder(
