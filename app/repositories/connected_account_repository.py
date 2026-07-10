@@ -23,9 +23,21 @@ class ConnectedAccountRepository(BaseRepository[ConnectedAccount]):
         result = await self.db.execute(stmt)
         return result.scalar_one_or_none()
 
+    
+    async def get_by_user_id(
+        self,
+        user_id: int,
+        provider: str = "google",
+    ) -> Optional[ConnectedAccount]:
+        """
+        Backward-compatible alias used by Google Drive service.
+        """
+        return await self.get_by_user_id_and_provider(user_id, provider)
+    
     async def get_by_user_and_provider(self, user_id: int, provider: str) -> Optional[ConnectedAccount]:
         """Alias used by Jira/GitHub connector services."""
         return await self.get_by_user_id_and_provider(user_id, provider)
+    
 
     async def upsert_connection(
         self,
@@ -85,25 +97,35 @@ class ConnectedAccountRepository(BaseRepository[ConnectedAccount]):
     async def upsert_google_account(
         self,
         user_id: int,
-        provider_account_id: str,
-        email: str,
-        name: str,
-        picture: str,
-        token_data: dict,
+        provider_account_id: str | None = None,
+        provider_email: str | None = None,
+        provider_name: str | None = None,
+        provider_picture: str | None = None,
+        access_token: str | None = None,
+        refresh_token: str | None = None,
+        token_type: str | None = "Bearer",
+        token_expires_at: datetime | None = None,
+        scopes: str | None = None,
+        metadata_: Dict[str, Any] | None = None,
     ) -> ConnectedAccount:
+        """
+        Create/update Google OAuth connection in connected_accounts.
+
+        This method matches the production Google OAuth service call.
+        """
         return await self.upsert_connection(
             user_id=user_id,
             provider="google",
+            access_token=access_token,
+            refresh_token=refresh_token,
+            token_expires_at=token_expires_at,
+            token_type=token_type,
             provider_account_id=provider_account_id,
-            provider_email=email,
-            provider_name=name,
-            provider_picture=picture,
-            access_token=token_data.get("access_token"),
-            refresh_token=token_data.get("refresh_token"),
-            token_type=token_data.get("token_type"),
-            token_expires_at=token_data.get("expires_at"),
-            scopes=",".join(token_data.get("scopes", [])) if isinstance(token_data.get("scopes"), list) else token_data.get("scopes"),
-            metadata_=token_data.get("metadata") or token_data.get("metadata_") or {},
+            provider_email=provider_email,
+            provider_name=provider_name,
+            provider_picture=provider_picture,
+            scopes=scopes,
+            metadata_=metadata_ or {},
         )
 
     async def update_tokens(self, account: ConnectedAccount, access_token: str, expires_at) -> ConnectedAccount:

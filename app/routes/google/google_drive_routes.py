@@ -14,9 +14,13 @@ from app.services.google.google_drive_service import (
     list_drive_files,
     search_drive_files,
     get_drive_file_metadata,
+    list_drive_files_for_user,
     ensure_omnibrain_folders,
     upload_file_to_folder,
 )
+from app.core.database import get_db
+from app.core.security import get_current_user
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.google.google_client_service import get_drive_client_for_user
 # TODO: Replace `user_id` query parameter with current logged-in user from JWT dependency later.
@@ -40,12 +44,26 @@ async def drive_files(
     return list_drive_files(user_id=user_id, page_size=page_size)
 
 @router.get("/files/me")
+
 async def drive_files_me(
-    page_size: int = Query(10, description="Number of files to return"),
-    current_user: User = Depends(get_current_user)
+
+    page_size: int = Query(50, description="Number of files to return"),
+
+    db: AsyncSession = Depends(get_db),
+
+    current_user: User = Depends(get_current_user),
+
 ):
-    """List recent files from Google Drive for the current authenticated user."""
-    return list_drive_files(user_id=current_user.id, page_size=page_size)
+
+    return await list_drive_files_for_user(
+
+        user_id=current_user.id,
+
+        db=db,
+
+        page_size=page_size,
+
+    )
 
 @router.get("/search")
 async def drive_search(
