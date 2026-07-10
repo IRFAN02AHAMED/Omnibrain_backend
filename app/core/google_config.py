@@ -8,23 +8,18 @@ load_dotenv()
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 GOOGLE_CLIENT_SECRET = os.getenv("GOOGLE_CLIENT_SECRET", "")
-
-# Old testing callback route
 GOOGLE_REDIRECT_URI = os.getenv(
     "GOOGLE_REDIRECT_URI",
     "http://127.0.0.1:8000/auth/google/callback",
 )
 
-# New production callback route
 GOOGLE_REDIRECT_URI_V2 = os.getenv(
     "GOOGLE_REDIRECT_URI_V2",
     "http://127.0.0.1:8000/auth/google/callback/v2",
 )
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:5173")
 
-FRONTEND_URL = os.getenv(
-    "FRONTEND_URL",
-    "http://localhost:5173",
-)
+
 
 GOOGLE_AUTH_URL = "https://accounts.google.com/o/oauth2/v2/auth"
 GOOGLE_TOKEN_URL = "https://oauth2.googleapis.com/token"
