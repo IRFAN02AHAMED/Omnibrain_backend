@@ -5,7 +5,7 @@ from app.repositories.chat_session_repository import ChatSessionRepository
 from app.models.chat_message import ChatMessage
 from app.models.chat_session import ChatSession
 from app.services.chat.chat_session_service import build_chat_title_from_message, create_chat_session
-from app.services.chat.rag_service import generate_rag_answer
+from app.services.chat.rag_service import generate_rag_answer_with_metadata
 
 async def add_message_to_session(session_id: int, user_id: int, role: str, content: str, db: AsyncSession, **kwargs) -> ChatMessage:
     session_repo = ChatSessionRepository(db)
@@ -62,14 +62,17 @@ async def create_session_and_chat(
     )
 
     user_message = await add_message_to_session(session.id, user_id, "user", content, db)
-    answer_text = await generate_rag_answer(session.id, user_id, content, db)
+    rag_result = await generate_rag_answer_with_metadata(session.id, user_id, content, db)
     assistant_message = await add_message_to_session(
         session.id,
         user_id,
         "assistant",
-        answer_text,
+        rag_result["answer"],
         db,
-        model_name="rag-mock",
+        model_name=rag_result["model_name"],
+        source_chunks=rag_result["source_chunks"],
+        used_global_documents=rag_result["used_global_documents"],
+        used_session_documents=rag_result["used_session_documents"],
     )
 
     return session, user_message, assistant_message

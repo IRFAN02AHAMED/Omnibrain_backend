@@ -1,10 +1,36 @@
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
+import re
+from fastapi import HTTPException
 from app.ai.openai_brain import OpenAIBrainError, answer_chat_with_memory, stream_chat_with_memory
 from app.repositories.chat_message_repository import ChatMessageRepository
 from app.repositories.document_chunk_repository import DocumentChunkRepository
 from app.repositories.session_document_chunk_repository import SessionDocumentChunkRepository
 from app.services.documents.document_chunking_service import generate_mock_embedding
+from app.services.github_services.github_connector_service import GitHubConnectorService
+from app.services.jira_services.jira_connector_service import JiraConnectorService
+
+
+def _is_github_query(query: str) -> bool:
+    normalized = (query or "").lower()
+    github_keywords = [
+        "github",
+        "repo",
+        "repository",
+        "pull request",
+        "pr ",
+        "commit",
+        "branch",
+        "codebase",
+    ]
+    return any(keyword in normalized for keyword in github_keywords)
+
+
+def _is_jira_query(query: str) -> bool:
+    normalized = (query or "").lower()
+    if any(keyword in normalized for keyword in ["jira", "ticket", "issue", "story", "bug", "epic"]):
+        return True
+    return bool(re.search(r"\b[A-Z][A-Z0-9]+-\d+\b", query or ""))
 
 async def retrieve_context_for_query(session_id: int, user_id: int, query: str, db: AsyncSession) -> str:
     query_emb = await generate_mock_embedding(query)
@@ -16,6 +42,26 @@ async def retrieve_context_for_query(session_id: int, user_id: int, query: str, 
     session_chunks = await session_repo.search_by_embedding_for_session(session_id, query_emb, limit=3)
     
     context_texts = [c.chunk_text for c in global_chunks] + [c.chunk_text for c in session_chunks]
+
+    if _is_github_query(query):
+        try:
+            github_context = await GitHubConnectorService(db).get_context_for_query(user_id, query)
+            if github_context:
+                context_texts.append(github_context)
+        except HTTPException as exc:
+            context_texts.append(f"GitHub connector error: {exc.detail}")
+        except Exception:
+            context_texts.append("GitHub connector error: failed to fetch live GitHub context.")
+
+    if _is_jira_query(query):
+        try:
+            jira_context = await JiraConnectorService(db).get_context_for_query(user_id, query)
+            if jira_context:
+                context_texts.append(jira_context)
+        except HTTPException as exc:
+            context_texts.append(f"Jira connector error: {exc.detail}")
+        except Exception:
+            context_texts.append("Jira connector error: failed to fetch live Jira context.")
     
     if not context_texts:
         return ""
@@ -36,9 +82,62 @@ async def retrieve_recent_history(session_id: int, user_id: int, db: AsyncSessio
         for message in messages
     ]
 
-async def generate_rag_answer(session_id: int, user_id: int, query: str, db: AsyncSession) -> str:
-    context = await retrieve_context_for_query(session_id, user_id, query, db)
+
+async def prepare_rag_context(session_id: int, user_id: int, query: str, db: AsyncSession) -> dict:
+    query_emb = await generate_mock_embedding(query)
+
+    global_repo = DocumentChunkRepository(db)
+    global_chunks = await global_repo.search_by_embedding_for_owner(user_id, query_emb, limit=3)
+
+    session_repo = SessionDocumentChunkRepository(db)
+    session_chunks = await session_repo.search_by_embedding_for_session(session_id, query_emb, limit=3)
+
+    context_texts = [c.chunk_text for c in global_chunks] + [c.chunk_text for c in session_chunks]
+    kb_sources = []
+
+    if global_chunks:
+        kb_sources.append("global_documents")
+    if session_chunks:
+        kb_sources.append("session_documents")
+
+    if _is_github_query(query):
+        try:
+            github_context = await GitHubConnectorService(db).get_context_for_query(user_id, query)
+            if github_context:
+                context_texts.append(github_context)
+                kb_sources.append("github")
+        except HTTPException as exc:
+            context_texts.append(f"GitHub connector error: {exc.detail}")
+        except Exception:
+            context_texts.append("GitHub connector error: failed to fetch live GitHub context.")
+
+    if _is_jira_query(query):
+        try:
+            jira_context = await JiraConnectorService(db).get_context_for_query(user_id, query)
+            if jira_context:
+                context_texts.append(jira_context)
+                kb_sources.append("jira")
+        except HTTPException as exc:
+            context_texts.append(f"Jira connector error: {exc.detail}")
+        except Exception:
+            context_texts.append("Jira connector error: failed to fetch live Jira context.")
+
     history = await retrieve_recent_history(session_id, user_id, db)
+    context = "\n\n---\n\n".join(context_texts) if context_texts else ""
+
+    return {
+        "context": context,
+        "history": history,
+        "used_global_documents": bool(global_chunks),
+        "used_session_documents": bool(session_chunks),
+        "kb_sources": kb_sources,
+        "is_kb_grounded": bool(context_texts),
+    }
+
+async def generate_rag_answer(session_id: int, user_id: int, query: str, db: AsyncSession) -> str:
+    prepared = await prepare_rag_context(session_id, user_id, query, db)
+    context = prepared["context"]
+    history = prepared["history"]
 
     if not context:
         if history:
@@ -75,9 +174,23 @@ async def generate_rag_answer(session_id: int, user_id: int, query: str, db: Asy
         )
 
 
-async def stream_rag_answer(session_id: int, user_id: int, query: str, db: AsyncSession):
-    context = await retrieve_context_for_query(session_id, user_id, query, db)
-    history = await retrieve_recent_history(session_id, user_id, db)
+async def generate_rag_answer_with_metadata(session_id: int, user_id: int, query: str, db: AsyncSession) -> dict:
+    prepared = await prepare_rag_context(session_id, user_id, query, db)
+    answer = await generate_rag_answer(session_id, user_id, query, db)
+    return {
+        "answer": answer,
+        "used_global_documents": prepared["used_global_documents"],
+        "used_session_documents": prepared["used_session_documents"],
+        "source_chunks": [{"source": source} for source in prepared["kb_sources"]],
+        "grounding_source": "kb" if prepared["is_kb_grounded"] else "model",
+        "model_name": "rag-kb" if prepared["is_kb_grounded"] else "rag-model",
+    }
+
+
+async def stream_rag_answer(session_id: int, user_id: int, query: str, db: AsyncSession, prepared_context: dict | None = None):
+    prepared = prepared_context or await prepare_rag_context(session_id, user_id, query, db)
+    context = prepared["context"]
+    history = prepared["history"]
 
     if not context and not history:
         fallback = f"I don't have enough context in your documents to answer: '{query}'"

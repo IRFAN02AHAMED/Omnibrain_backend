@@ -169,6 +169,8 @@ app.include_router(chat_routes.router)
 app.include_router(drive_sync_routes.router)
 app.include_router(jira_router)
 app.include_router(github_router)
+app.include_router(jira_router, prefix="/api/v1")
+app.include_router(github_router, prefix="/api/v1")
 
 # ─────────────────────────────────────────────────────────────────────────────
 # UVICORN ENTRY POINT

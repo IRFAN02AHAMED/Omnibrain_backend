@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, Query
 from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import settings
 from app.core.database import get_db
 from app.core.oauth_state import create_oauth_state, decode_oauth_state
 from app.core.security import decode_token, get_current_user
@@ -29,14 +30,11 @@ async def jira_callback(code: str = Query(...), state: str = Query(...), db: Asy
     service = JiraOAuthService(db)
     connection = await service.handle_callback(code=code, user_id=user_id)
     metadata = connection.metadata_ or {}
-    return ResponseBuilder.success(
-        data={
-            "connected": True,
-            "site_name": metadata.get("site_name"),
-            "site_url": metadata.get("site_url"),
-            "cloud_id": metadata.get("cloud_id"),
-        },
-        message="Jira connected successfully. You can close this tab.",
+    return RedirectResponse(
+        url=(
+            f"{settings.FRONTEND_URL}/chat"
+            f"?connector=jira&connected=1&site={metadata.get('site_name') or ''}"
+        )
     )
 
 

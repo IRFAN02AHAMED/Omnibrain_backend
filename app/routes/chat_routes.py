@@ -20,7 +20,7 @@ from app.services.chat.chat_message_service import (
 from app.services.documents.session_document_service import process_and_store_session_document
 from app.repositories.session_document_repository import SessionDocumentRepository
 from app.repositories.chat_session_repository import ChatSessionRepository
-from app.services.chat.rag_service import stream_rag_answer
+from app.services.chat.rag_service import stream_rag_answer, prepare_rag_context
 
 router = APIRouter(prefix="/chats", tags=["Chats"])
 
@@ -78,6 +78,8 @@ async def stream_chat_turn(
         raise HTTPException(status_code=404, detail=str(exc))
 
     async def event_stream():
+        prepared = await prepare_rag_context(session.id, current_user.id, data.content, db)
+
         session_payload = {
             "type": "session",
             "session": {
@@ -98,7 +100,13 @@ async def stream_chat_turn(
         yield json.dumps(session_payload) + "\n"
 
         assistant_text_parts: list[str] = []
-        async for chunk in stream_rag_answer(session.id, current_user.id, data.content, db):
+        async for chunk in stream_rag_answer(
+            session.id,
+            current_user.id,
+            data.content,
+            db,
+            prepared_context=prepared,
+        ):
             assistant_text_parts.append(chunk)
             yield json.dumps({"type": "delta", "content": chunk}) + "\n"
 
@@ -109,7 +117,10 @@ async def stream_chat_turn(
             "assistant",
             final_text,
             db,
-            model_name="rag-stream",
+            model_name="rag-kb" if prepared["is_kb_grounded"] else "rag-model",
+            source_chunks=[{"source": source} for source in prepared["kb_sources"]],
+            used_global_documents=prepared["used_global_documents"],
+            used_session_documents=prepared["used_session_documents"],
         )
 
         done_payload = {
@@ -119,6 +130,10 @@ async def stream_chat_turn(
                 "role": assistant_message.role,
                 "content": assistant_message.content,
                 "created_at": assistant_message.created_at.isoformat() if assistant_message.created_at else None,
+                "model_name": assistant_message.model_name,
+                "used_global_documents": assistant_message.used_global_documents,
+                "used_session_documents": assistant_message.used_session_documents,
+                "source_chunks": assistant_message.source_chunks,
             },
         }
         yield json.dumps(done_payload) + "\n"

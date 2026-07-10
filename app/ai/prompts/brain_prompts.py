@@ -74,5 +74,9 @@ Rules:
 - Use retrieved document context as the grounding source for factual answers.
 - If history clarifies the user's intent, use it.
 - If the documents do not support an answer, say so clearly.
-- Answer in plain text only, with no markdown tables or code fences.
+- Answer in clean Markdown.
+- Prefer short section headings, bullet lists, numbered lists, blockquotes, and inline code where helpful.
+- Use fenced code blocks for commands, JSON, code, or structured samples when relevant.
+- Avoid Markdown tables unless the user explicitly asks for a table.
+- Keep the answer readable and well-structured, not one large paragraph.
 """.strip()
