@@ -22,5 +22,7 @@ def extract_text_from_bytes(content: bytes, mime_type: str) -> str:
             return f"[Error reading DOCX: {e}]"
     elif mime_type == "text/plain":
         return content.decode("utf-8", errors="replace")
+    elif mime_type in {"text/markdown", "text/csv"}:
+        return content.decode("utf-8", errors="replace")
     else:
         return ""
