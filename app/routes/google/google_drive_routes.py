@@ -39,6 +39,13 @@ async def drive_files(
     """
     return list_drive_files(user_id=user_id, page_size=page_size)
 
+@router.get("/files/me")
+async def drive_files_me(
+    page_size: int = Query(10, description="Number of files to return"),
+    current_user: User = Depends(get_current_user)
+):
+    """List recent files from Google Drive for the current authenticated user."""
+    return list_drive_files(user_id=current_user.id, page_size=page_size)
 
 @router.get("/search")
 async def drive_search(
@@ -54,6 +61,14 @@ async def drive_search(
     """
     return search_drive_files(user_id=user_id, query=query, page_size=page_size)
 
+@router.get("/search/me")
+async def drive_search_me(
+    query: str = Query(..., description="Search query to match against file names"),
+    page_size: int = Query(10, description="Number of results to return"),
+    current_user: User = Depends(get_current_user)
+):
+    """Search Google Drive files by name for the current authenticated user."""
+    return search_drive_files(user_id=current_user.id, query=query, page_size=page_size)
 
 @router.get("/files/{file_id}")
 async def drive_file_metadata(
