@@ -60,7 +60,8 @@ async def answer_chat_with_memory(
     user_prompt = (
         f"Current user question:\n{query}\n\n"
         f"Recent conversation history:\n{json.dumps(conversation_history, ensure_ascii=True)}\n\n"
-        f"Retrieved document context:\n{context or 'No matching document context found.'}\n"
+        f"Retrieved grounded context (this may include live connector data from Jira, GitHub, Google Drive, and stored KB chunks):\n"
+        f"{context or 'No matching document context found.'}\n"
     )
     return await _chat_text(CHAT_MEMORY_SYSTEM_PROMPT, user_prompt)
 
@@ -73,7 +74,8 @@ async def stream_chat_with_memory(
     user_prompt = (
         f"Current user question:\n{query}\n\n"
         f"Recent conversation history:\n{json.dumps(conversation_history, ensure_ascii=True)}\n\n"
-        f"Retrieved document context:\n{context or 'No matching document context found.'}\n"
+        f"Retrieved grounded context (this may include live connector data from Jira, GitHub, Google Drive, and stored KB chunks):\n"
+        f"{context or 'No matching document context found.'}\n"
     )
 
     if not has_openai_brain_config():

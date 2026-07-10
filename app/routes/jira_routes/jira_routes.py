@@ -48,3 +48,17 @@ async def jira_status(db: AsyncSession = Depends(get_db), current_user=Depends(g
 async def jira_projects(db: AsyncSession = Depends(get_db), current_user=Depends(get_current_user)):
     projects = await JiraConnectorService(db).get_projects(current_user.id)
     return ResponseBuilder.success(data=projects, message="Jira projects fetched successfully.")
+
+
+@router.get("/projects/{project_key}/issues", summary="List Jira issues for a project")
+async def jira_project_issues(
+    project_key: str,
+    max_results: int = Query(25, ge=1, le=100),
+    db: AsyncSession = Depends(get_db),
+    current_user=Depends(get_current_user),
+):
+    issues = await JiraConnectorService(db).get_project_issues(current_user.id, project_key.upper(), max_results=max_results)
+    return ResponseBuilder.success(
+        data=issues,
+        message=f"Jira issues fetched successfully for project {project_key.upper()}.",
+    )

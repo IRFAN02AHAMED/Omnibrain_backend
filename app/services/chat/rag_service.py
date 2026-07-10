@@ -2,13 +2,19 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 import re
 from fastapi import HTTPException
-from app.ai.openai_brain import OpenAIBrainError, answer_chat_with_memory, stream_chat_with_memory
+from app.ai.openai_brain import (
+    OpenAIBrainError,
+    answer_chat_with_memory,
+    classify_brain_query,
+    stream_chat_with_memory,
+)
 from app.repositories.chat_message_repository import ChatMessageRepository
 from app.repositories.document_chunk_repository import DocumentChunkRepository
 from app.repositories.session_document_chunk_repository import SessionDocumentChunkRepository
 from app.services.documents.document_chunking_service import generate_mock_embedding
 from app.services.github_services.github_connector_service import GitHubConnectorService
 from app.services.jira_services.jira_connector_service import JiraConnectorService
+from app.core.logger import logger
 
 
 def _is_github_query(query: str) -> bool:
@@ -32,6 +38,59 @@ def _is_jira_query(query: str) -> bool:
         return True
     return bool(re.search(r"\b[A-Z][A-Z0-9]+-\d+\b", query or ""))
 
+
+async def _classify_query_sources(query: str) -> dict:
+    route = {
+        "source_hint": None,
+        "intent": "simple_lookup",
+        "entities": [],
+        "keywords": [],
+        "needs_story_graph": False,
+        "routing_mode": "deterministic",
+    }
+
+    exact_jira = bool(re.search(r"\b[A-Z][A-Z0-9]+-\d+\b", query or ""))
+    deterministic_github = _is_github_query(query)
+    deterministic_jira = _is_jira_query(query)
+
+    if exact_jira:
+        route["source_hint"] = "jira"
+        route["routing_mode"] = "deterministic_exact_id"
+        return route
+
+    try:
+        llm_route = await classify_brain_query(query)
+        if isinstance(llm_route, dict):
+            route.update(
+                {
+                    "source_hint": llm_route.get("source_hint"),
+                    "intent": llm_route.get("intent") or route["intent"],
+                    "entities": llm_route.get("entities") or [],
+                    "keywords": llm_route.get("keywords") or [],
+                    "needs_story_graph": bool(llm_route.get("needs_story_graph")),
+                    "routing_mode": "llm",
+                }
+            )
+    except OpenAIBrainError as exc:
+        logger.warning("[RAG] LLM query routing failed for query=%s error=%s", query, exc)
+
+    if route["source_hint"] not in {"jira", "github"}:
+        if deterministic_jira:
+            route["source_hint"] = "jira"
+            route["routing_mode"] = "deterministic_fallback"
+        elif deterministic_github:
+            route["source_hint"] = "github"
+            route["routing_mode"] = "deterministic_fallback"
+
+    logger.info(
+        "[RAG] Query routing decided source=%s mode=%s intent=%s query=%s",
+        route["source_hint"],
+        route["routing_mode"],
+        route["intent"],
+        query,
+    )
+    return route
+
 async def retrieve_context_for_query(session_id: int, user_id: int, query: str, db: AsyncSession) -> str:
     query_emb = await generate_mock_embedding(query)
     
@@ -42,8 +101,9 @@ async def retrieve_context_for_query(session_id: int, user_id: int, query: str, 
     session_chunks = await session_repo.search_by_embedding_for_session(session_id, query_emb, limit=3)
     
     context_texts = [c.chunk_text for c in global_chunks] + [c.chunk_text for c in session_chunks]
+    routing = await _classify_query_sources(query)
 
-    if _is_github_query(query):
+    if routing["source_hint"] == "github":
         try:
             github_context = await GitHubConnectorService(db).get_context_for_query(user_id, query)
             if github_context:
@@ -53,15 +113,17 @@ async def retrieve_context_for_query(session_id: int, user_id: int, query: str, 
         except Exception:
             context_texts.append("GitHub connector error: failed to fetch live GitHub context.")
 
-    if _is_jira_query(query):
+    if routing["source_hint"] == "jira":
         try:
             jira_context = await JiraConnectorService(db).get_context_for_query(user_id, query)
             if jira_context:
                 context_texts.append(jira_context)
         except HTTPException as exc:
+            logger.warning("[RAG] Jira connector HTTP error for query=%s detail=%s", query, exc.detail)
             context_texts.append(f"Jira connector error: {exc.detail}")
-        except Exception:
-            context_texts.append("Jira connector error: failed to fetch live Jira context.")
+        except Exception as exc:
+            logger.exception("[RAG] Jira connector unexpected error for query=%s", query)
+            context_texts.append(f"Jira connector error: failed to fetch live Jira context. Internal error: {exc}")
     
     if not context_texts:
         return ""
@@ -94,13 +156,14 @@ async def prepare_rag_context(session_id: int, user_id: int, query: str, db: Asy
 
     context_texts = [c.chunk_text for c in global_chunks] + [c.chunk_text for c in session_chunks]
     kb_sources = []
+    routing = await _classify_query_sources(query)
 
     if global_chunks:
         kb_sources.append("global_documents")
     if session_chunks:
         kb_sources.append("session_documents")
 
-    if _is_github_query(query):
+    if routing["source_hint"] == "github":
         try:
             github_context = await GitHubConnectorService(db).get_context_for_query(user_id, query)
             if github_context:
@@ -111,16 +174,18 @@ async def prepare_rag_context(session_id: int, user_id: int, query: str, db: Asy
         except Exception:
             context_texts.append("GitHub connector error: failed to fetch live GitHub context.")
 
-    if _is_jira_query(query):
+    if routing["source_hint"] == "jira":
         try:
             jira_context = await JiraConnectorService(db).get_context_for_query(user_id, query)
             if jira_context:
                 context_texts.append(jira_context)
                 kb_sources.append("jira")
         except HTTPException as exc:
+            logger.warning("[RAG] Jira connector HTTP error for query=%s detail=%s", query, exc.detail)
             context_texts.append(f"Jira connector error: {exc.detail}")
-        except Exception:
-            context_texts.append("Jira connector error: failed to fetch live Jira context.")
+        except Exception as exc:
+            logger.exception("[RAG] Jira connector unexpected error for query=%s", query)
+            context_texts.append(f"Jira connector error: failed to fetch live Jira context. Internal error: {exc}")
 
     history = await retrieve_recent_history(session_id, user_id, db)
     context = "\n\n---\n\n".join(context_texts) if context_texts else ""
@@ -132,6 +197,7 @@ async def prepare_rag_context(session_id: int, user_id: int, query: str, db: Asy
         "used_session_documents": bool(session_chunks),
         "kb_sources": kb_sources,
         "is_kb_grounded": bool(context_texts),
+        "routing": routing,
     }
 
 async def generate_rag_answer(session_id: int, user_id: int, query: str, db: AsyncSession) -> str:
