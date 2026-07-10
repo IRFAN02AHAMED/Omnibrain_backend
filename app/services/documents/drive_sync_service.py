@@ -2,10 +2,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories.sync_log_repository import SyncLogRepository
 from app.services.google.google_client_service import get_drive_client_for_user
 from app.services.google.google_drive_service import ensure_omnibrain_folders, list_files_in_folder, download_file
-from app.services.documents.global_document_service import process_and_store_global_document
+from app.services.documents.global_document_service import store_global_document_from_drive_file
 from app.repositories.document_repository import DocumentRepository
-from fastapi import UploadFile
-import io
 
 async def sync_global_documents(user_id: int, db: AsyncSession):
     repo = SyncLogRepository(db)
@@ -42,17 +40,19 @@ async def sync_global_documents(user_id: int, db: AsyncSession):
                     
                 # Download and process
                 content = download_file(service, file["id"])
-                
-                # Mock UploadFile object for processing service
-                from starlette.datastructures import Headers
-                upload_file = UploadFile(
-                    filename=file["name"],
-                    file=io.BytesIO(content),
-                    size=len(content),
-                    headers=Headers({"content-type": file.get("mimeType", "application/octet-stream")})
+
+                await store_global_document_from_drive_file(
+                    user_id=user_id,
+                    file_name=file["name"],
+                    mime_type=file.get("mimeType", "application/octet-stream"),
+                    file_size=int(file.get("size") or len(content)),
+                    drive_file_id=file["id"],
+                    drive_web_url=file.get("webViewLink"),
+                    drive_folder_id=global_folder_id,
+                    content=content,
+                    db=db,
+                    source_type="drive_sync",
                 )
-                
-                await process_and_store_global_document(user_id, upload_file, db)
                 results["files_added"] += 1
                 
             except Exception as e:

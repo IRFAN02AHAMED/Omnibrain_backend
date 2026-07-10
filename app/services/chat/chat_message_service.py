@@ -24,6 +24,28 @@ async def list_session_messages(session_id: int, user_id: int, db: AsyncSession)
     return await repo.list_by_session_and_user(session_id, user_id)
 
 
+async def get_or_create_session_for_chat(
+    user_id: int,
+    content: str,
+    db: AsyncSession,
+    session_id: int | None = None,
+    title: str | None = None,
+) -> ChatSession:
+    session_repo = ChatSessionRepository(db)
+
+    if session_id is not None:
+        session = await session_repo.get_by_id_and_user(session_id, user_id)
+        if not session:
+            raise ValueError("Session not found")
+        return session
+
+    return await create_chat_session(
+        user_id=user_id,
+        title=title or build_chat_title_from_message(content),
+        db=db,
+    )
+
+
 async def create_session_and_chat(
     user_id: int,
     content: str,
@@ -31,18 +53,13 @@ async def create_session_and_chat(
     session_id: int | None = None,
     title: str | None = None,
 ) -> tuple[ChatSession, ChatMessage, ChatMessage]:
-    session_repo = ChatSessionRepository(db)
-
-    if session_id is not None:
-        session = await session_repo.get_by_id_and_user(session_id, user_id)
-        if not session:
-            raise ValueError("Session not found")
-    else:
-        session = await create_chat_session(
-            user_id=user_id,
-            title=title or build_chat_title_from_message(content),
-            db=db,
-        )
+    session = await get_or_create_session_for_chat(
+        user_id=user_id,
+        content=content,
+        db=db,
+        session_id=session_id,
+        title=title,
+    )
 
     user_message = await add_message_to_session(session.id, user_id, "user", content, db)
     answer_text = await generate_rag_answer(session.id, user_id, content, db)

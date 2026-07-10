@@ -45,3 +45,17 @@ class ChatMessageRepository(BaseRepository[ChatMessage]):
         ).order_by(self.model.created_at.asc())
         result = await self.db.execute(stmt)
         return list(result.scalars().all())
+
+    async def list_recent_by_session_and_user(
+        self,
+        session_id: int,
+        user_id: int,
+        limit: int = 8,
+    ) -> List[ChatMessage]:
+        stmt = select(self.model).where(
+            self.model.session_id == session_id,
+            self.model.user_id == user_id,
+            self.model.is_active == True,
+        ).order_by(self.model.created_at.desc()).limit(limit)
+        result = await self.db.execute(stmt)
+        return list(reversed(list(result.scalars().all())))
