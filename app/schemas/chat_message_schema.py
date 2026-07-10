@@ -12,8 +12,19 @@ class ChatMessageBase(BaseModel):
     token_count: Optional[int] = None
 
 class ChatMessageCreate(ChatMessageBase):
-    session_id: int
-    user_id: int
+    pass
+
+
+class ChatTurnCreate(BaseModel):
+    content: str
+    session_id: Optional[int] = None
+    title: Optional[str] = None
+
+
+class ChatTurnResponse(BaseModel):
+    session: "ChatSessionResponse"
+    user_message: "ChatMessageResponse"
+    assistant_message: "ChatMessageResponse"
 
 class ChatMessageUpdate(BaseModel):
     pass # Messages shouldn't be updated
@@ -26,3 +37,8 @@ class ChatMessageResponse(ChatMessageBase):
     updated_at: datetime
     
     model_config = ConfigDict(from_attributes=True)
+
+
+from app.schemas.chat_session_schema import ChatSessionResponse
+
+ChatTurnResponse.model_rebuild()

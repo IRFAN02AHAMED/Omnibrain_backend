@@ -5,7 +5,8 @@ from app.models.chat_session import ChatSession
 
 async def create_chat_session(user_id: int, title: str, db: AsyncSession) -> ChatSession:
     repo = ChatSessionRepository(db)
-    return await repo.create_session(user_id, title)
+    clean_title = (title or "").strip() or "New Chat"
+    return await repo.create_session(user_id, clean_title)
 
 async def list_chat_sessions(user_id: int, db: AsyncSession) -> List[ChatSession]:
     repo = ChatSessionRepository(db)
@@ -17,3 +18,10 @@ async def get_chat_session(session_id: int, user_id: int, db: AsyncSession) -> C
     if not session:
         raise ValueError("Chat session not found")
     return session
+
+
+def build_chat_title_from_message(content: str) -> str:
+    text = (content or "").strip()
+    if not text:
+        return "New Chat"
+    return text[:60].strip() + ("..." if len(text) > 60 else "")
