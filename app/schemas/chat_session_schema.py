@@ -8,7 +8,7 @@ class ChatSessionBase(BaseModel):
     is_archived: bool = False
 
 class ChatSessionCreate(ChatSessionBase):
-    user_id: int
+    pass
 
 class ChatSessionUpdate(BaseModel):
     title: Optional[str] = None
