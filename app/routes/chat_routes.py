@@ -1,4 +1,7 @@
+import json
+
 from fastapi import APIRouter, Depends, UploadFile, File, HTTPException
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from typing import List
 from app.core.database import get_db
@@ -8,10 +11,16 @@ from app.schemas.chat_session_schema import ChatSessionResponse, ChatSessionCrea
 from app.schemas.chat_message_schema import ChatMessageResponse, ChatMessageCreate, ChatTurnCreate, ChatTurnResponse
 from app.schemas.session_document_schema import SessionDocumentResponse
 from app.services.chat.chat_session_service import create_chat_session, list_chat_sessions
-from app.services.chat.chat_message_service import add_message_to_session, create_session_and_chat, list_session_messages
+from app.services.chat.chat_message_service import (
+    add_message_to_session,
+    create_session_and_chat,
+    get_or_create_session_for_chat,
+    list_session_messages,
+)
 from app.services.documents.session_document_service import process_and_store_session_document
 from app.repositories.session_document_repository import SessionDocumentRepository
 from app.repositories.chat_session_repository import ChatSessionRepository
+from app.services.chat.rag_service import stream_rag_answer
 
 router = APIRouter(prefix="/chats", tags=["Chats"])
 
@@ -48,6 +57,73 @@ async def send_chat_turn(
         }
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
+
+
+@router.post("/send/stream")
+async def stream_chat_turn(
+    data: ChatTurnCreate,
+    db: AsyncSession = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        session = await get_or_create_session_for_chat(
+            user_id=current_user.id,
+            content=data.content,
+            db=db,
+            session_id=data.session_id,
+            title=data.title,
+        )
+        user_message = await add_message_to_session(session.id, current_user.id, "user", data.content, db)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    async def event_stream():
+        session_payload = {
+            "type": "session",
+            "session": {
+                "id": session.id,
+                "title": session.title,
+                "last_message_at": session.last_message_at.isoformat() if session.last_message_at else None,
+                "message_count": session.message_count,
+                "updated_at": session.updated_at.isoformat() if session.updated_at else None,
+                "created_at": session.created_at.isoformat() if session.created_at else None,
+            },
+            "user_message": {
+                "id": user_message.id,
+                "role": user_message.role,
+                "content": user_message.content,
+                "created_at": user_message.created_at.isoformat() if user_message.created_at else None,
+            },
+        }
+        yield json.dumps(session_payload) + "\n"
+
+        assistant_text_parts: list[str] = []
+        async for chunk in stream_rag_answer(session.id, current_user.id, data.content, db):
+            assistant_text_parts.append(chunk)
+            yield json.dumps({"type": "delta", "content": chunk}) + "\n"
+
+        final_text = "".join(assistant_text_parts).strip()
+        assistant_message = await add_message_to_session(
+            session.id,
+            current_user.id,
+            "assistant",
+            final_text,
+            db,
+            model_name="rag-stream",
+        )
+
+        done_payload = {
+            "type": "done",
+            "assistant_message": {
+                "id": assistant_message.id,
+                "role": assistant_message.role,
+                "content": assistant_message.content,
+                "created_at": assistant_message.created_at.isoformat() if assistant_message.created_at else None,
+            },
+        }
+        yield json.dumps(done_payload) + "\n"
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
 @router.post("/{session_id}/chat", response_model=ChatTurnResponse)
