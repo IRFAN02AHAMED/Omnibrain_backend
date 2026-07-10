@@ -66,11 +66,17 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:5173"
 
     # ── Gemini AI ────────────────────────────────────────────────────
-    GEMINI_API_KEY: str
+    GEMINI_API_KEY: str | None = None
     GEMINI_MODEL: str = "gemini-2.5-flash"
     GEMINI_EMBEDDING_MODEL: str = "models/gemini-embedding-001"
     GEMINI_MAX_RETRIES: int = 3
     GEMINI_TIMEOUT_SECONDS: int = 60
+
+    # ── OpenAI / GPT ───────────────────────────────────────────────
+    OPENAI_API_KEY: str | None = None
+    OPENAI_MODEL: str = "gpt-4.1-mini"
+    OPENAI_MAX_RETRIES: int = 3
+    OPENAI_TIMEOUT_SECONDS: int = 60
 
     # ── Hugging Face backup embedding ────────────────────────────────
     HUGGINGFACE_CHAT_MODEL: str = "Qwen/Qwen3-8B"
@@ -89,6 +95,11 @@ class Settings(BaseSettings):
     # ── Chunking ─────────────────────────────────────────────────────
     CHUNK_SIZE: int = 800
     CHUNK_OVERLAP: int = 100
+
+    # ── Brain Graph / Retrieval Flow ────────────────────────────────
+    BRAIN_GRAPH_TOP_K: int = 6
+    BRAIN_GRAPH_LINK_LIMIT: int = 10
+    BRAIN_GRAPH_RANK_LIMIT: int = 8
 
     # ── Logging ──────────────────────────────────────────────────────
     LOG_FILE: str = "app.log"

@@ -39,6 +39,7 @@ jsonpointer==3.1.1
 langchain==0.3.9
 langchain-core==0.3.63
 langchain-google-genai==2.0.7
+langgraph==0.2.60
 langchain-text-splitters==0.3.8
 langsmith==0.1.147
 lxml==6.1.1
