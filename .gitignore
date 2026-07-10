@@ -42,3 +42,12 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+
+.env
+.venv/
+venv/
+__pycache__/
+*.pyc
+.DS_Store
+app.log
+uploads/

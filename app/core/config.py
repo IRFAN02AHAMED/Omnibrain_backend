@@ -65,6 +65,17 @@ class Settings(BaseSettings):
     GOOGLE_REDIRECT_URI: str = "http://localhost:8000/auth/google/callback"
     FRONTEND_URL: str = "http://localhost:5173"
 
+
+    # ── Jira / Atlassian OAuth ───────────────────────────────────────
+    ATLASSIAN_CLIENT_ID: str = ""
+    ATLASSIAN_CLIENT_SECRET: str = ""
+    ATLASSIAN_REDIRECT_URI: str = "http://localhost:8000/connectors/jira/callback"
+
+    # ── GitHub OAuth ─────────────────────────────────────────────────
+    GITHUB_CLIENT_ID: str = ""
+    GITHUB_CLIENT_SECRET: str = ""
+    GITHUB_REDIRECT_URI: str = "http://localhost:8000/connectors/github/callback"
+
     # ── Gemini AI ────────────────────────────────────────────────────
     GEMINI_API_KEY: str
     GEMINI_MODEL: str = "gemini-2.5-flash"
